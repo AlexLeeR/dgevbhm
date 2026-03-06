@@ -1,0 +1,54 @@
+functions {
+  real gev_lpdf(real y, real mu, real sigma, real xi) {
+    real z;
+    if (fabs(xi) > 1e-10) {
+      z = 1 + xi * (y - mu) / sigma;
+      if (z <= 0) return negative_infinity();
+      return -log(sigma) - (1 + 1/xi) * log(z) - pow(z, -1/xi);
+    } else {
+      z = (y - mu) / sigma;
+      return -log(sigma) - z - exp(-z);
+    }
+  }
+}
+
+data {
+  int<lower=0> J;                   // # of groups
+  int<lower=0> D;                   // # of subgroups per group (fixed)
+  int<lower=0> N_total;             // total amount of observations
+  array[D,J] int<lower=0> s;        // Subgroup size for each group (s)
+  vector[N_total] y;                // Flattened observations
+  vector[D] d;
+}
+
+parameters {
+  vector[J] mut;
+  vector<lower=0>[J] sigma0;
+  vector<lower=-1, upper=1>[D] xi;
+  vector<lower=0>[J] theta;
+  vector<lower=0, upper=1>[J] eta;
+  real alpha;
+  real<lower=0> beta;
+  real<lower=-0.5,upper=0.5> delta;
+}
+
+model {
+  int pos = 1;
+
+  mut ~ normal(alpha, 10);
+  sigma0 ~ gamma(beta*10, 10);
+  xi ~ normal(delta, 5);
+
+  for (j in 1:J) {
+    for (dd in 1:D) {
+      real mu = mut[j] * sigma0[j] * pow(d[dd] + theta[j], -eta[j]);
+      real sigma = sigma0[j] * pow(d[dd] + theta[j], -eta[j]);
+
+      // Process each observation individually
+      for (i in 1:s[dd,j]) {
+        target += gev_lpdf(y[pos + i - 1] | mu, sigma, xi[dd]);
+      }
+      pos += s[dd,j];
+    }
+  }
+}
