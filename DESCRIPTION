@@ -1,17 +1,21 @@
 Package: dgevbhm
 Title: Bayesian Hierarchical Modeling for Duration-Dependent GEV
-Version: 0.0.0.9000
+Version: 0.1.0
 Authors@R: 
     person("Alexander Lee", "Rischmuller", , "alex.rischmuller@gmail.com", role = c("aut", "cre"))
 Description: 
     The dgevbhm package is a software package written in R and Stan that offers a Bayesian hierarchical regional framework to estimate the occurrence probability of extreme precipitation based on small sample sizes, as sub-daily observations and high-resolution climate model simulations typically cover less than 50 years. dgevbhm features Bayesian parameter estimation for the duration-dependent Generalized Extreme Value distribution, which requires annual maxima of precipitation across different durations. By utilizing No U-turn sampling via rstan, models sample posterior samples more efficiently, and with the help tensor computation via torch these large posterior samples are computed quicker and more efficiently. Furthermore, the package provides model application and evaluation tools to guide the user in model selection, as well as making inferences from model output to generate robust estimations of intensity-duration-frequency curves.
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+License: MIT + file LICENSE
 Encoding: UTF-8
+LazyData: true
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Imports: 
     lubridate,
     parallel,
     torch,
-    zoo
+    zoo,
+    rstan,
+    IDF,
+    stats,
+    graphics
