@@ -48,7 +48,7 @@ return_level = function(fit, max_rp = 100, j, d, alpha = 0.05) {
   plot(T_periods, as.numeric(rl_mean), type = 'n', log = 'xy',
        ylim = range(c(as.numeric(rl_lower), as.numeric(rl_upper))),
        xlab = 'Return period [y]', ylab = 'Return level [mm/h]',
-       main = paste0('StationID: ',fit_xi_d$stationID[j],'\n','duration = ', fit$durs[d], 'h'))
+       main = paste0('StationID: ',fit$stationID[j],'\n','duration = ', fit$durs[d], 'h'))
   polygon(c(T_periods, rev(T_periods)), c(as.numeric(rl_upper), rev(as.numeric(rl_lower))), col = '#FFFF00', border = NA)
   lines(T_periods, as.numeric(rl_mean), col = '#D70064', lwd = 2)
   points(emp_T[emp_T <= max_rp], data_sorted[emp_T <= max_rp], col = '#0050A0')

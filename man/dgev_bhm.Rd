@@ -4,12 +4,14 @@
 \alias{dgev_bhm}
 \title{Bayesian Hierarchical Model for d-GEV}
 \usage{
-dgev_bhm(data, iter = 2000, cores = 4, shp_d = NULL)
+dgev_bhm(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL)
 }
 \arguments{
 \item{data}{A list containing processed station data (output from \code{data_read}).}
 
-\item{iter}{Integer. Number of iterations for MCMC sampling.}
+\item{chains}{Integer. Number of independent MCMC chains.}
+
+\item{iter}{Integer. Number of iterations per chain (including warmup).}
 
 \item{cores}{Integer. Number of cores for parallel sampling.}
 

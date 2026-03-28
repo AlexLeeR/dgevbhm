@@ -4,7 +4,7 @@
 \alias{idf_plot_torch}
 \title{Plot IDF Curves using Torch}
 \usage{
-idf_plot_torch(fit, j, rp, alpha = 0.05, cores = 4)
+idf_plot_torch(fit, j = NULL, rp, alpha = 0.05, cores = 4)
 }
 \arguments{
 \item{fit}{List. The output object from the dgev_bhm function.}

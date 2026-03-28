@@ -1,13 +1,14 @@
-#' Calculate WAIC for d-GEV BHM
+#' Robust GEV Log-PDF using Torch
 #'
-#' Computes the Watanabe-Akaike Information Criterion (WAIC) for the fitted
-#' Bayesian Hierarchical Model.
+#' Calculates the log-probability density function for the GEV distribution.
+#' Handles the Gumbel limit (xi near 0) and invalid support areas robustly.
 #'
-#' @param fit List. Output from \code{dgev_bhm}.
-#' @param cores Integer. Number of threads for torch (default 4).
+#' @param x Tensor. Observed data.
+#' @param mu Tensor. Location parameter.
+#' @param sigma Tensor. Scale parameter.
+#' @param xi Tensor. Shape parameter.
 #'
-#' @return Numeric. The calculated WAIC value.
-#' @importFrom torch torch_tensor torch_pow torch_stack torch_flatten torch_sum
+#' @importFrom torch torch_tensor torch_log torch_exp torch_reciprocal torch_where torch_abs
 #' @export
 gev_lpdf_robust <- function(x, mu, sigma, xi) {
   one     <- torch::torch_tensor(1,      dtype = torch::torch_float64())
@@ -36,9 +37,23 @@ gev_lpdf_robust <- function(x, mu, sigma, xi) {
   return(result)
 }
 
+#' Calculate WAIC for d-GEV BHM
+#'
+#' Computes the Watanabe-Akaike Information Criterion (WAIC) for the fitted
+#' Bayesian Hierarchical Model.
+#'
+#' @param fit List. Output from \code{dgev_bhm}.
+#' @param cores Integer. Number of threads for torch (default 4).
+#'
+#' @return Numeric. The calculated WAIC value.
+#'
+#' @importFrom stats var
+#' @importFrom torch torch_tensor torch_pow torch_stack torch_flatten torch_sum
 #' @export
 waic = function(fit, cores = 4) {
   # dependencies are in DESCRIPTION
+
+  torch::torch_set_num_threads(cores)
 
   lpdf_list = lapply(1:length(fit$data), function(i) {
     mut_t    = torch::torch_tensor(fit$pars$mut[,i],    dtype = torch::torch_float64())
@@ -68,17 +83,24 @@ waic = function(fit, cores = 4) {
     mu_d_t     = mut_t1 * sigma_d_t
 
     lpdf_t = gev_lpdf_robust(data_t1, mu_d_t, sigma_d_t, xi_t1)
-    return(torch::torch_sum(lpdf_t, dim = 3))
+    return(torch::torch_flatten(lpdf_t, start_dim = 2, end_dim = 3))
   })
 
-  lpdf_mat    = torch::torch_stack(lpdf_list, dim = 2)
-  log_lik_23  = torch::torch_flatten(lpdf_mat, start_dim = 2)
-  log_lik_a   = t(as.matrix(log_lik_23)) # as.matrix/as.array is fine
+  log_lik_mat <- torch::torch_cat(lpdf_list, dim = 2)
+  lse_i       <- torch::torch_logsumexp(log_lik_mat, dim = 1)
 
-  lppd        = sum(log(colMeans(exp(log_lik_a))))
-  # Internal colVars helper
-  cvars       = apply(log_lik_a, 2, var)
-  p_waic      = sum(cvars)
-  waic_val    = -2 * (lppd - p_waic)
+  S           <- dim(log_lik_mat)[1]
+  S_tensor    <- torch::torch_tensor(S, dtype = torch::torch_float64())
+
+  lppd_i      <- lse_i - torch::torch_log(S_tensor)
+  lppd        <- torch::torch_sum(lppd_i)
+
+  p_waic_i    <- torch::torch_var(log_lik_mat, dim = 1, unbiased = TRUE)
+  p_waic      <- torch::torch_sum(p_waic_i)
+
+  negtwo      <- torch::torch_tensor(-2, dtype = torch::torch_float64())
+  waic        <- negtwo * (lppd - p_waic)
+  waic_val    <- as.numeric(waic)
+
   return(waic_val)
 }

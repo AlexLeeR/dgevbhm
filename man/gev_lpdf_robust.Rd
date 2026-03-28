@@ -2,19 +2,20 @@
 % Please edit documentation in R/waic.R
 \name{gev_lpdf_robust}
 \alias{gev_lpdf_robust}
-\title{Calculate WAIC for d-GEV BHM}
+\title{Robust GEV Log-PDF using Torch}
 \usage{
 gev_lpdf_robust(x, mu, sigma, xi)
 }
 \arguments{
-\item{fit}{List. Output from \code{dgev_bhm}.}
+\item{x}{Tensor. Observed data.}
 
-\item{cores}{Integer. Number of threads for torch (default 4).}
-}
-\value{
-Numeric. The calculated WAIC value.
+\item{mu}{Tensor. Location parameter.}
+
+\item{sigma}{Tensor. Scale parameter.}
+
+\item{xi}{Tensor. Shape parameter.}
 }
 \description{
-Computes the Watanabe-Akaike Information Criterion (WAIC) for the fitted
-Bayesian Hierarchical Model.
+Calculates the log-probability density function for the GEV distribution.
+Handles the Gumbel limit (xi near 0) and invalid support areas robustly.
 }

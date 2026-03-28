@@ -29,7 +29,7 @@ dgev_torch <- function(p, mu, sigma, xi) {
 #' @importFrom torch torch_tensor torch_where torch_log torch_empty torch_linspace torch_cat torch_pow torch_mean torch_quantile torch_stack torch_min torch_max torch_set_num_threads
 #' @importFrom graphics plot lines polygon legend
 #' @export
-idf_plot_torch <- function(fit, j, rp, alpha = 0.05, cores = 4) {
+idf_plot_torch <- function(fit, j=NULL, rp, alpha = 0.05, cores = 4) {
 
   if (length(rp) > 3) {
     stop('No than 3 return periods allowed!')
@@ -167,6 +167,7 @@ idf_plot_torch <- function(fit, j, rp, alpha = 0.05, cores = 4) {
              legend = c("confidence \nintervals", "dGEV"),
              lwd = c(1, 2), lty = c(2, 1), col = c("grey", "black"))
     } else if (prob_t$shape > 1 & prob_t$shape <= 3) {
+
       idf_samp_dv <- dgev_torch(prob_t$unsqueeze(1)$unsqueeze(1),
                                 mu_d_dv$unsqueeze(3),
                                 sigma_d_dv$unsqueeze(3),

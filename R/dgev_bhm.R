@@ -4,7 +4,8 @@
 #' Generalized Extreme Value distributions.
 #'
 #' @param data A list containing processed station data (output from \code{data_read}).
-#' @param iter Integer. Number of iterations for MCMC sampling.
+#' @param chains Integer. Number of independent MCMC chains.
+#' @param iter Integer. Number of iterations per chain (including warmup).
 #' @param cores Integer. Number of cores for parallel sampling.
 #' @param shp_d Character. Dimension for shape parameter: "d" for durational, "j" for spatial.
 #'
@@ -13,11 +14,16 @@
 #' @importFrom rstan stan_model sampling extract
 #' @importFrom IDF gev.d.fit
 #' @export
-dgev_bhm = function(data, iter = 2000, cores = 4, shp_d = NULL) {
+dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
   # No require() needed here; we define dependencies in the DESCRIPTION file
 
   if (is.null(shp_d) || (shp_d != "d" && shp_d != "j")) {
     stop("please enter \"d\" durational or \"j\" spatial for shape parameter dimension")
+  }
+
+  if (cores > chains) {
+    warning(sprintf("cores = %d are specified, but chains = %d. Stan can only use one core per chain; %d cores will remain idle.",
+                    cores, chains, cores - chains))
   }
 
   cat("\nComputing initial parameters... ")
@@ -74,10 +80,6 @@ dgev_bhm = function(data, iter = 2000, cores = 4, shp_d = NULL) {
       stop("Stan model file not found. Ensure it is in inst/stan/ and re-install.")
     }
     mod = rstan::stan_model(stan_model_path)
-
-    #stan_model_path <- "../inst/stan/dgev_bhm_xi_d.stan"
-    #stan_model_path <- system.file("stan", "dgev_bhm_xi_j.stan", package = "dgevbhm")
-    #mod = rstan::stan_model(stan_model_path)
     cat("Complete!\n")
 
   } else if (shp_d == "j") {
@@ -91,21 +93,25 @@ dgev_bhm = function(data, iter = 2000, cores = 4, shp_d = NULL) {
 
     cat("\nReading Stan file (spatial)... ")
 
-    # Replace the hardcoded path
     stan_model_path <- system.file("stan", "dgev_bhm_xi_j.stan", package = "dgevbhm")
     if (stan_model_path == "") {
       stop("Stan model file not found. Ensure it is in inst/stan/ and re-install.")
     }
-    mod = rstan::stan_model(stan_model_path)
+    mod <- rstan::stan_model(stan_model_path)
 
-    #stan_model_path <- "../inst/stan/dgev_bhm_xi_j.stan"
-    #stan_model_path <- system.file("stan", "dgev_bhm_xi_j.stan", package = "dgevbhm")
-    #mod = rstan::stan_model(stan_model_path)
     cat("Complete!\n")
   }
 
-  fit = rstan::sampling(mod, data = stan_data, init = init_fun,
-                        chains = 1, iter = iter, warmup = iter/2, cores = cores)
+  fit <- rstan::sampling(mod,
+                         data = stan_data,
+                         init = init_fun,
+                         chains = chains,
+                         iter = iter,
+                         warmup = iter/2,
+                         cores = cores)
+
+  warmup <- iter / 2
+  samples_per_chain <- iter - warmup
 
   return(list(pars = rstan::extract(fit),
               data = data_list,
@@ -113,6 +119,6 @@ dgev_bhm = function(data, iter = 2000, cores = 4, shp_d = NULL) {
               j = length(data_list),
               d = length(durs),
               shp_d = shp_d,
-              mcsamp = iter/2,
+              mcsamp = chains * samples_per_chain,
               stationID = data$stationID))
 }
