@@ -3,7 +3,7 @@ It has the ability to provide robust intensity-duration-frequency (IDF) curve es
 
 The requirements are R (>=4.0), `rstan` and `torch`.
 
-To install please run: `devtools::install_github("AlexLeeR/dgevbhm")`
+To install please run: `pak::pak("AlexLeeR/dgevbhm")`
 
 Basic workflow:
 1. **Data pre-processing:** Use `data_read()` to format the sub-daily precipitation TXTs
