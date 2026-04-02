@@ -1,7 +1,7 @@
 The `dgevbhm` package is an R and Stan-based package for Bayesian hierarchical regional modeling of extreme precipitation. 
 It has the ability to provide robust intensity-duration-frequency (IDF) curve estimations in data-scarce scenarios (e.g. records under 50 years).
 
-The requirements are R (>=4.0), `rstan` and `torch`.
+The requirements are R (>=4.4.0), `rstan` and `torch`.
 
 To install please run: `pak::pak("AlexLeeR/dgevbhm")`
 
