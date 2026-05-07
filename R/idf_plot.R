@@ -1,333 +1,169 @@
-#' Quantile function for d-GEV using Torch
+#' Quantile function for d-GEV using Base R
 #'
-#' @param p Probability
-#' @param mu Location parameter
-#' @param sigma Scale parameter
-#' @param xi Shape parameter
-#' @importFrom torch torch_tensor torch_where torch_log
+#' @param p Probability (scalar)
+#' @param mu_mat Location parameter matrix (Durations x Samples)
+#' @param sigma_mat Scale parameter matrix (Durations x Samples)
+#' @param xi_vec Shape parameter vector
+#' @param xi_dim Character. "duration" for shp_d='d', "sample" for shp_d='j'
 #' @export
-dgev_torch <- function(p, mu, sigma, xi) {
-  p <- torch::torch_tensor(p, dtype = torch::torch_float64())
-  one <- torch::torch_tensor(1.0, dtype = torch::torch_float64())
+gev_mat <- function(p, mu_mat, sigma_mat, xi_vec, xi_dim) {
+  eps <- 1e-10
+  log_p <- -log(p)
 
-  q <- torch::torch_where(
-    xi != torch::torch_tensor(0, dtype = torch::torch_float64()),
-    mu - (sigma / xi) * (one - (-torch::torch_log(p))^(-xi)),
-    mu - sigma * torch::torch_log(-torch::torch_log(p))
-  )
-  return(q)
+  multiplier <- ifelse(abs(xi_vec) > eps,
+                       (1 - log_p^(-xi_vec)) / xi_vec,
+                       log(log_p))
+
+  if (xi_dim == "duration") {
+    sigma_scaled <- sigma_mat * multiplier
+  } else if (xi_dim == "sample") {
+    sigma_scaled <- sweep(sigma_mat, 2, multiplier, `*`)
+  }
+
+  return(mu_mat - sigma_scaled)
 }
 
-#' Plot IDF Curves using Torch
+#' Plot IDF Curves using Base R
 #'
 #' @param fit List. The output object from the dgev_bhm function.
 #' @param j Integer. Station index.
 #' @param rp Numeric vector. Return periods (max 3).
 #' @param alpha Numeric. Significance level.
-#' @param cores Integer. Threads for torch.
 #'
-#' @importFrom torch torch_tensor torch_where torch_log torch_empty torch_linspace torch_cat torch_pow torch_mean torch_quantile torch_stack torch_min torch_max torch_set_num_threads
 #' @importFrom graphics plot lines polygon legend
+#' @importFrom matrixStats rowQuantiles
+#' @importFrom grDevices adjustcolor
 #' @export
-idf_plot_torch <- function(fit, j=NULL, rp, alpha = 0.05, cores = 4) {
+idf_plot <- function(fit, j = NULL, rp, alpha = 0.05) {
 
-  if (length(rp) > 3) {
-    stop('No than 3 return periods allowed!')
-  }
-
-  if (alpha < 0 | alpha > 1) {
-    stop("alpha should be less than 1 and greater than 0")
-  }
-
-  torch::torch_set_num_threads(cores)
-
-  prob <- 1 - (1 / rp)
-  prob_t <- torch::torch_tensor(prob, dtype = torch::torch_float64())
+  if (length(rp) > 3) stop('No more than 3 return periods allowed!')
+  if (alpha < 0 | alpha > 1) stop("alpha should be less than 1 and greater than 0")
 
   durs <- fit$durs
-  if (length(durs) <= 3) {
-    stop("more than 3 durations needed")
-  }
+  if (length(durs) <= 3) stop("more than 3 durations needed")
 
+  prob_vec <- 1 - (1 / rp)
   si_col <- c("#D81B60", "#1E88E5", "#004D40")
+  quant_probs <- c(0 + (alpha / 2), 1 - (alpha / 2))
 
-  durs_ip <- torch::torch_empty(0, dtype = torch::torch_float64())
-  durs_t <- torch::torch_tensor(durs, dtype = torch::torch_float64())
-
-  for (dv in 2:length(durs)) {
-    if (dv == 2) {
-      durs_sq <- torch::torch_linspace(durs_t[dv - 1], durs_t[dv], steps = 101)
-      durs_ip <- torch::torch_cat(list(durs_ip, durs_sq))
-    } else {
-      durs_sq <- torch::torch_linspace(durs_t[dv - 1], durs_t[dv], steps = 101)
-      durs_ip <- torch::torch_cat(list(durs_ip, durs_sq[2:101]))
+  interpolate_vector <- function(v, steps = 101) {
+    res <- numeric(0)
+    for (i in 2:length(v)) {
+      seq_val <- seq(v[i - 1], v[i], length.out = steps)
+      if (i == 2) {
+        res <- c(res, seq_val)
+      } else {
+        res <- c(res, seq_val[-1])
+      }
     }
+    return(res)
   }
 
-  mut <- torch::torch_tensor(fit$pars$mut[, j], dtype = torch::torch_float64())
-  sigma0 <- torch::torch_tensor(fit$pars$sigma0[, j], dtype = torch::torch_float64())
-  theta <- torch::torch_tensor(fit$pars$theta[, j], dtype = torch::torch_float64())
-  eta <- torch::torch_tensor(fit$pars$eta[, j], dtype = torch::torch_float64())
+  durs_ip <- interpolate_vector(durs, steps = 101)
 
-  q_upper <- torch::torch_tensor(1 - (alpha / 2), dtype = torch::torch_float64())
-  q_lower <- torch::torch_tensor(0 + (alpha / 2), dtype = torch::torch_float64())
+  dur_indices <- seq(1, length(durs_ip), by = 100)
+
+  calc_mu_sigma <- function(durs_vec, mut, sigma0, theta, eta) {
+    term_inside <- outer(durs_vec, theta, `+`)
+    term_pow    <- sweep(term_inside, 2, -eta, `^`)
+    sigma_mat   <- sweep(term_pow, 2, sigma0, `*`)
+    mu_mat      <- sweep(sigma_mat, 2, mut, `*`)
+    return(list(mu = mu_mat, sigma = sigma_mat))
+  }
+
+  mut    <- fit$pars$mut[, j]
+  sigma0 <- fit$pars$sigma0[, j]
+  theta  <- fit$pars$theta[, j]
+  eta    <- fit$pars$eta[, j]
+
+  # plotting objects
+  res_list <- list()
+  all_lower <- numeric(0)
+  all_upper <- numeric(0)
 
   if (fit$shp_d == "d") {
     cat("Computing d-dimensional shape IDF curve...\n")
 
-    xi <- torch::torch_tensor(fit$pars$xi, dtype = torch::torch_float64())
-    xi_mean <- torch::torch_mean(xi, dim = 1)
+    xi_mean    <- colMeans(fit$pars$xi)
+    xi_mean_ip <- interpolate_vector(xi_mean, steps = 101)
 
-    xi_mean_ip <- torch::torch_empty(0, dtype = torch::torch_float64())
+    params_dv     <- calc_mu_sigma(durs_ip, mut, sigma0, theta, eta)
+    params_actual <- calc_mu_sigma(durs, mut, sigma0, theta, eta)
 
-    for (dx in 2:length(xi_mean)) {
-      if (dx == 2) {
-        seq_points <- torch::torch_linspace(xi_mean[dx - 1], xi_mean[dx], steps = 101)
-        xi_mean_ip <- torch::torch_cat(list(xi_mean_ip, seq_points))
-      } else {
-        seq_points <- torch::torch_linspace(xi_mean[dx - 1], xi_mean[dx], steps = 101)
-        xi_mean_ip <- torch::torch_cat(list(xi_mean_ip, seq_points[2:101]))
-      }
+    for (si in 1:length(prob_vec)) {
+      p <- prob_vec[si]
+
+      idf_samp_dv <- gev_mat(p, params_dv$mu, params_dv$sigma, xi_mean_ip, "duration")
+      idf_mean_dv <- rowMeans(idf_samp_dv)
+      quants_dv   <- matrixStats::rowQuantiles(idf_samp_dv, probs = quant_probs)
+
+      idf_samp_actual <- gev_mat(p, params_actual$mu, params_actual$sigma, xi_mean, "duration")
+      idf_mean_actual <- rowMeans(idf_samp_actual)
+      quants_actual   <- matrixStats::rowQuantiles(idf_samp_actual, probs = quant_probs)
+
+      diff_mean  <- idf_mean_actual - idf_mean_dv[dur_indices]
+      diff_lower <- quants_actual[, 1] - quants_dv[dur_indices, 1]
+      diff_upper <- quants_actual[, 2] - quants_dv[dur_indices, 2]
+
+      corr_mean  <- idf_mean_dv + interpolate_vector(diff_mean, steps = 101)
+      corr_lower <- quants_dv[, 1] + interpolate_vector(diff_lower, steps = 101)
+      corr_upper <- quants_dv[, 2] + interpolate_vector(diff_upper, steps = 101)
+
+      res_list[[si]] <- list(mean = corr_mean, lower = corr_lower, upper = corr_upper)
+      all_lower <- c(all_lower, corr_lower)
+      all_upper <- c(all_upper, corr_upper)
     }
 
-    sigma_d_dv <- sigma0$unsqueeze(2) * torch::torch_pow(durs_ip$unsqueeze(1) + theta$unsqueeze(2), -eta$unsqueeze(2))
-    mu_d_dv <- sigma_d_dv * mut$unsqueeze(2)
 
-    sigma_d_actual <- sigma0$unsqueeze(2) * torch::torch_pow(durs_t$unsqueeze(1) + theta$unsqueeze(2), -eta$unsqueeze(2))
-    mu_d_actual <- sigma_d_actual * mut$unsqueeze(2)
-
-    if (prob_t$shape == 1) {
-
-      idf_samp_dv <- dgev_torch(prob_t$unsqueeze(1),
-                                mu_d_dv, sigma_d_dv,
-                                xi_mean_ip$unsqueeze(1))
-
-      idf_mean_dv <- torch::torch_mean(idf_samp_dv, dim = 1)
-      idf_q_upper_dv <- torch::torch_quantile(idf_samp_dv, q = q_upper, dim = 1)$squeeze(1)
-      idf_q_lower_dv <- torch::torch_quantile(idf_samp_dv, q = q_lower, dim = 1)$squeeze(1)
-
-      idf_samp_actual <- dgev_torch(prob_t$unsqueeze(1), mu_d_actual, sigma_d_actual, xi)
-
-      idf_mean_actual <- torch::torch_mean(idf_samp_actual, dim = 1)
-      idf_q_upper_actual <- torch::torch_quantile(idf_samp_actual, q = q_upper, dim = 1)$squeeze(1)
-      idf_q_lower_actual <- torch::torch_quantile(idf_samp_actual, q = q_lower, dim = 1)$squeeze(1)
-
-      dur_indices <- which(as.array(durs_ip) %in% as.array(durs_t))
-
-      idf_mean_dv_di <- idf_mean_dv[dur_indices]
-      idf_q_upper_dv_di <- idf_q_upper_dv[dur_indices]
-      idf_q_lower_dv_di <- idf_q_lower_dv[dur_indices]
-
-      diff_idf_mean <- idf_mean_actual - idf_mean_dv_di
-      diff_idf_q_upper <- idf_q_upper_actual - idf_q_upper_dv_di
-      diff_idf_q_lower <- idf_q_lower_actual - idf_q_lower_dv_di
-
-      diff_idf_mean_ip <- torch::torch_empty(0, dtype = torch::torch_float64())
-      diff_idf_q_upper_ip <- torch::torch_empty(0, dtype = torch::torch_float64())
-      diff_idf_q_lower_ip <- torch::torch_empty(0, dtype = torch::torch_float64())
-
-      for (dx in 2:length(diff_idf_mean)) {
-        if (dx == 2) {
-          diff_idf_mean_sp <- torch::torch_linspace(diff_idf_mean[dx - 1], diff_idf_mean[dx], steps = 101)
-          diff_idf_mean_ip <- torch::torch_cat(list(diff_idf_mean_ip, diff_idf_mean_sp))
-
-          diff_idf_q_upper_sp <- torch::torch_linspace(diff_idf_q_upper[dx - 1], diff_idf_q_upper[dx], steps = 101)
-          diff_idf_q_upper_ip <- torch::torch_cat(list(diff_idf_q_upper_ip, diff_idf_q_upper_sp))
-
-          diff_idf_q_lower_sp <- torch::torch_linspace(diff_idf_q_lower[dx - 1], diff_idf_q_lower[dx], steps = 101)
-          diff_idf_q_lower_ip <- torch::torch_cat(list(diff_idf_q_lower_ip, diff_idf_q_lower_sp))
-        } else {
-          diff_idf_mean_sp <- torch::torch_linspace(diff_idf_mean[dx - 1], diff_idf_mean[dx], steps = 101)
-          diff_idf_mean_ip <- torch::torch_cat(list(diff_idf_mean_ip, diff_idf_mean_sp[2:101]))
-
-          diff_idf_q_upper_sp <- torch::torch_linspace(diff_idf_q_upper[dx - 1], diff_idf_q_upper[dx], steps = 101)
-          diff_idf_q_upper_ip <- torch::torch_cat(list(diff_idf_q_upper_ip, diff_idf_q_upper_sp[2:101]))
-
-          diff_idf_q_lower_sp <- torch::torch_linspace(diff_idf_q_lower[dx - 1], diff_idf_q_lower[dx], steps = 101)
-          diff_idf_q_lower_ip <- torch::torch_cat(list(diff_idf_q_lower_ip, diff_idf_q_lower_sp[2:101]))
-        }
-      }
-
-      idf_mean_corrected <- idf_mean_dv + diff_idf_mean_ip
-      idf_q_upper_corrected <- idf_q_upper_dv + diff_idf_q_upper_ip
-      idf_q_lower_corrected <- idf_q_lower_dv + diff_idf_q_lower_ip
-
-      idf_ylims <- c(min(as.numeric(idf_q_lower_corrected)), max(as.numeric(idf_q_upper_corrected) + 10))
-
-      plot(as.numeric(durs_ip), as.numeric(idf_mean_corrected), ylim = idf_ylims, type = "l", lwd = 2, log = "xy",
-           main = paste0(fit$stationID[j], "\nfrequency = ", rp, " years, xi shape = ", fit$shp_d),
-           ylab = "Intensity [mm/h]", xlab = "Duration [h]", cex.main = 0.75)
-      lines(as.numeric(durs_ip),
-            as.numeric(idf_q_upper_corrected),
-            lty = 2, col = "grey")
-      lines(as.numeric(durs_ip),
-            as.numeric(idf_q_lower_corrected),
-            lty = 2, col = "grey")
-      legend("topright",
-             legend = c("confidence \nintervals", "dGEV"),
-             lwd = c(1, 2), lty = c(2, 1), col = c("grey", "black"))
-    } else if (prob_t$shape > 1 & prob_t$shape <= 3) {
-
-      idf_samp_dv <- dgev_torch(prob_t$unsqueeze(1)$unsqueeze(1),
-                                mu_d_dv$unsqueeze(3),
-                                sigma_d_dv$unsqueeze(3),
-                                xi_mean_ip$unsqueeze(2)$unsqueeze(1))
-
-      idf_mean_dv <- torch::torch_mean(idf_samp_dv, dim = 1)
-      idf_q_upper_dv <- torch::torch_quantile(idf_samp_dv, q = q_upper, dim = 1)$squeeze(1)
-      idf_q_lower_dv <- torch::torch_quantile(idf_samp_dv, q = q_lower, dim = 1)$squeeze(1)
-
-      idf_samp_actual <- dgev_torch(prob_t$unsqueeze(1)$unsqueeze(1),
-                                    mu_d_actual$unsqueeze(3),
-                                    sigma_d_actual$unsqueeze(3),
-                                    xi$unsqueeze(3))
-
-      idf_mean_actual <- torch::torch_mean(idf_samp_actual, dim = 1)
-      idf_q_upper_actual <- torch::torch_quantile(idf_samp_actual, q = q_upper, dim = 1)$squeeze(1)
-      idf_q_lower_actual <- torch::torch_quantile(idf_samp_actual, q = q_lower, dim = 1)$squeeze(1)
-
-      dur_indices <- which(as.array(durs_ip) %in% as.array(durs_t))
-
-      idf_mean_dv_di <- idf_mean_dv[dur_indices, ]
-      idf_q_upper_dv_di <- idf_q_upper_dv[dur_indices, ]
-      idf_q_lower_dv_di <- idf_q_lower_dv[dur_indices, ]
-
-      diff_idf_mean <- idf_mean_actual - idf_mean_dv_di
-      diff_idf_q_upper <- idf_q_upper_actual - idf_q_upper_dv_di
-      diff_idf_q_lower <- idf_q_lower_actual - idf_q_lower_dv_di
-
-      diff_idf_mean_ip_si_list <- list()
-      diff_idf_q_upper_ip_si_list <- list()
-      diff_idf_q_lower_ip_si_list <- list()
-
-      for (si in 1:prob_t$shape) {
-
-        diff_idf_mean_ip <- torch::torch_empty(0, dtype = torch::torch_float64())
-        diff_idf_q_upper_ip <- torch::torch_empty(0, dtype = torch::torch_float64())
-        diff_idf_q_lower_ip <- torch::torch_empty(0, dtype = torch::torch_float64())
-
-        for (dx in 2:length(diff_idf_mean[, 1])) {
-          if (dx == 2) {
-
-            diff_idf_mean_sp <- torch::torch_linspace(diff_idf_mean[dx - 1, si], diff_idf_mean[dx, si], steps = 101)
-            diff_idf_mean_ip <- torch::torch_cat(list(diff_idf_mean_ip, diff_idf_mean_sp))
-
-            diff_idf_q_upper_sp <- torch::torch_linspace(diff_idf_q_upper[dx - 1, si], diff_idf_q_upper[dx, si], steps = 101)
-            diff_idf_q_upper_ip <- torch::torch_cat(list(diff_idf_q_upper_ip, diff_idf_q_upper_sp))
-
-            diff_idf_q_lower_sp <- torch::torch_linspace(diff_idf_q_lower[dx - 1, si], diff_idf_q_lower[dx, si], steps = 101)
-            diff_idf_q_lower_ip <- torch::torch_cat(list(diff_idf_q_lower_ip, diff_idf_q_lower_sp))
-          } else {
-            diff_idf_mean_sp <- torch::torch_linspace(diff_idf_mean[dx - 1, si], diff_idf_mean[dx, si], steps = 101)
-            diff_idf_mean_ip <- torch::torch_cat(list(diff_idf_mean_ip, diff_idf_mean_sp[2:101]))
-
-            diff_idf_q_upper_sp <- torch::torch_linspace(diff_idf_q_upper[dx - 1, si], diff_idf_q_upper[dx, si], steps = 101)
-            diff_idf_q_upper_ip <- torch::torch_cat(list(diff_idf_q_upper_ip, diff_idf_q_upper_sp[2:101]))
-
-            diff_idf_q_lower_sp <- torch::torch_linspace(diff_idf_q_lower[dx - 1, si], diff_idf_q_lower[dx, si], steps = 101)
-            diff_idf_q_lower_ip <- torch::torch_cat(list(diff_idf_q_lower_ip, diff_idf_q_lower_sp[2:101]))
-          }
-        }
-        diff_idf_mean_ip_si_list[[si]] <- diff_idf_mean_ip
-        diff_idf_q_upper_ip_si_list[[si]] <- diff_idf_q_upper_ip
-        diff_idf_q_lower_ip_si_list[[si]] <- diff_idf_q_lower_ip
-      }
-      diff_idf_mean_ip_si <- torch::torch_stack(diff_idf_mean_ip_si_list, dim = 2)
-      diff_idf_q_upper_ip_si <- torch::torch_stack(diff_idf_q_upper_ip_si_list, dim = 2)
-      diff_idf_q_lower_ip_si <- torch::torch_stack(diff_idf_q_lower_ip_si_list, dim = 2)
-
-      idf_mean_corrected <- idf_mean_dv + diff_idf_mean_ip_si
-      idf_q_upper_corrected <- idf_q_upper_dv + diff_idf_q_upper_ip_si
-      idf_q_lower_corrected <- idf_q_lower_dv + diff_idf_q_lower_ip_si
-
-      idf_xlims <- c(as.numeric(torch::torch_min(durs_ip)), as.numeric(torch::torch_max(durs_ip)))
-      idf_ylims <- c(as.numeric(torch::torch_min(idf_q_lower_corrected)), as.numeric(torch::torch_max(idf_q_upper_corrected)))
-
-      rp_paste <- paste(rp, collapse = ",")
-
-      plot(1, type = "n", xlim = idf_xlims, ylim = idf_ylims,
-           main = paste0(fit$stationID[j], "\nfrequency = ",
-                         rp_paste, " years, xi shape = ", fit$shp_d),
-           ylab = "Intensity [mm/h]", xlab = "Duration [h]", cex.main = 0.75, log = "xy")
-      for (si in 1:prob_t$shape) {
-        lines(as.numeric(durs_ip), as.numeric(idf_mean_corrected[, si]), col = si_col[si], lwd = 2)
-        polygon(x = c(as.numeric(durs_ip), rev(as.numeric(durs_ip))),
-                y = c(as.numeric(idf_q_upper_corrected[, si]), rev(as.numeric(idf_q_lower_corrected[, si]))),
-                border = NA, col = paste0(si_col[si], "80"))
-
-      }
-      l_si <- rep(1, prob_t$shape)
-      legend("topright", legend = paste("T =", rp, "years"), lwd = l_si,
-             lty = l_si, col = si_col, pt.bg = paste0(si_col, "80"), pch = 15)
-    }
   } else if (fit$shp_d == "j") {
     cat("Computing j-dimensional shape IDF curve...\n")
 
-    xi_j <- torch::torch_tensor(fit$pars$xi[, j], dtype = torch::torch_float64())
+    xi_j <- fit$pars$xi[, j]
+    params_dv <- calc_mu_sigma(durs_ip, mut, sigma0, theta, eta)
 
-    sigma_d_dv <- sigma0$unsqueeze(2) * torch::torch_pow(durs_ip$unsqueeze(1) + theta$unsqueeze(2), -eta$unsqueeze(2))
-    mu_d_dv <- sigma_d_dv * mut$unsqueeze(2)
+    for (si in 1:length(prob_vec)) {
+      p <- prob_vec[si]
 
-    if (prob_t$shape == 1) {
+      idf_samp <- gev_mat(p, params_dv$mu, params_dv$sigma, xi_j, "sample")
 
-      idf_samp <- dgev_torch(prob_t$unsqueeze(1), mu_d_dv, sigma_d_dv, xi_j$unsqueeze(2))
+      corr_mean  <- rowMeans(idf_samp)
+      quants     <- matrixStats::rowQuantiles(idf_samp, probs = quant_probs)
+      corr_lower <- quants[, 1]
+      corr_upper <- quants[, 2]
 
-      idf_mean <- torch::torch_mean(idf_samp, dim = 1)
-      idf_q_upper <- torch::torch_quantile(idf_samp, q = q_upper, dim = 1)$squeeze(1)
-      idf_q_lower <- torch::torch_quantile(idf_samp, q = q_lower, dim = 1)$squeeze(1)
-
-      idf_xlims <- c(as.numeric(torch::torch_min(durs_ip)),
-                     as.numeric(torch::torch_max(durs_ip)))
-      idf_ylims <- c(as.numeric(torch::torch_min(idf_q_lower)),
-                     as.numeric(torch::torch_max(idf_q_upper)))
-
-      plot(as.numeric(durs_ip), as.numeric(idf_mean),
-           ylim = idf_ylims, type = "l", lwd = 2, log = "xy",
-           main = paste0(fit$stationID[j], "\nfrequency = ",
-                         rp, " years, xi shape = ", fit$shp_d),
-           ylab = "Intensity [mm/h]", xlab = "Duration [h]", cex.main = 0.75)
-      lines(as.numeric(durs_ip),
-            as.numeric(idf_q_upper),
-            lty = 2, col = "grey")
-      lines(as.numeric(durs_ip),
-            as.numeric(idf_q_lower),
-            lty = 2, col = "grey")
-      legend("topright",
-             legend = c("confidence \nintervals", "dGEV"),
-             lwd = c(1, 2), lty = c(2, 1), col = c("grey", "black"))
-    } else if (prob_t$shape > 1 & prob_t$shape <= 3) {
-
-      rs <- fit$mcsamp
-
-      idf_samp <- dgev_torch(prob_t$unsqueeze(1)$unsqueeze(1),
-                             mu_d_dv$unsqueeze(3), sigma_d_dv$unsqueeze(3),
-                             xi_j$view(c(rs, 1, 1)))
-
-      idf_mean <- torch::torch_mean(idf_samp, dim = 1)
-      idf_q_upper <- torch::torch_quantile(idf_samp, q = q_upper, dim = 1)$squeeze(1)
-      idf_q_lower <- torch::torch_quantile(idf_samp, q = q_lower, dim = 1)$squeeze(1)
-
-      idf_xlims <- c(as.numeric(torch::torch_min(durs_ip)),
-                     as.numeric(torch::torch_max(durs_ip)))
-      idf_ylims <- c(as.numeric(torch::torch_min(idf_q_lower)),
-                     as.numeric(torch::torch_max(idf_q_upper)))
-
-      rp_paste <- paste(rp, collapse = ",")
-
-      plot(1, type = "n", xlim = idf_xlims, ylim = idf_ylims,
-           main = paste0(fit$stationID[j], "\nfrequency = ",
-                         rp_paste, " years, xi shape = ", fit$shp_d),
-           ylab = "Intensity [mm/h]", xlab = "Duration [h]", cex.main = 0.75, log = "xy")
-      for (si in 1:prob_t$shape) {
-        lines(as.numeric(durs_ip), as.numeric(idf_mean[, si]), col = si_col[si], lwd = 2)
-        polygon(x = c(as.numeric(durs_ip), rev(as.numeric(durs_ip))),
-                y = c(as.numeric(idf_q_upper[, si]), rev(as.numeric(idf_q_lower[, si]))),
-                border = NA, col = paste0(si_col[si], "80"))
-
-      }
-      l_si <- rep(1, prob_t$shape)
-      legend("topright", legend = paste("T =", rp, "years"),
-             lwd = l_si, lty = l_si, col = si_col, pt.bg = paste0(si_col, "80"), pch = 15)
+      res_list[[si]] <- list(mean = corr_mean, lower = corr_lower, upper = corr_upper)
+      all_lower <- c(all_lower, corr_lower)
+      all_upper <- c(all_upper, corr_upper)
     }
+  }
+
+  idf_xlims <- range(durs_ip)
+  idf_ylims <- c(min(all_lower), max(all_upper) + 10)
+  rp_paste  <- paste(rp, collapse = ",")
+
+  plot(1, type = "n", xlim = idf_xlims, ylim = idf_ylims,
+       main = paste0(fit$stationID[j], "\nfrequency = ", rp_paste, " years, xi shape = ", fit$shp_d),
+       ylab = "Intensity [mm/h]", xlab = "Duration [h]", cex.main = 0.75, log = "xy")
+
+  for (si in 1:length(prob_vec)) {
+    lines(durs_ip, res_list[[si]]$mean, col = si_col[si], lwd = 2)
+
+    if (length(prob_vec) == 1) {
+
+      lines(durs_ip, res_list[[si]]$upper, lty = 2, col = "grey")
+      lines(durs_ip, res_list[[si]]$lower, lty = 2, col = "grey")
+      legend("topright", legend = c("confidence \nintervals", "dGEV"),
+             lwd = c(1, 2), lty = c(2, 1), col = c("grey", "black"))
+    } else {
+      polygon(x = c(durs_ip, rev(durs_ip)),
+              y = c(res_list[[si]]$upper, rev(res_list[[si]]$lower)),
+              border = NA, col = adjustcolor(si_col[si], alpha.f = 0.5))
+    }
+  }
+
+  if (length(prob_vec) > 1) {
+    legend("topright", legend = paste("T =", rp, "years"),
+           lwd = 1, lty = 1, col = si_col[1:length(rp)],
+           pt.bg = adjustcolor(si_col[1:length(rp)], alpha.f = 0.5), pch = 15)
   }
 }

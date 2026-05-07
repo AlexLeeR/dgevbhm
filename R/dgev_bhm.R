@@ -73,13 +73,8 @@ dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
            xi     = rep(mean(dgev_params[3, ]), length(durs)))
     }
 
-    cat("\nReading Stan file (durational)... ")
-
-    stan_model_path <- system.file("stan", "dgev_bhm_xi_d.stan", package = "dgevbhm")
-    if (stan_model_path == "") {
-      stop("Stan model file not found. Ensure it is in inst/stan/ and re-install.")
-    }
-    mod = rstan::stan_model(stan_model_path)
+    cat("\nLoading pre-compiled Stan model (durational)... ")
+    mod <- stanmodels$dgev_bhm_xi_d
     cat("Complete!\n")
 
   } else if (shp_d == "j") {
@@ -91,14 +86,8 @@ dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
            xi     = dgev_params[3, ])
     }
 
-    cat("\nReading Stan file (spatial)... ")
-
-    stan_model_path <- system.file("stan", "dgev_bhm_xi_j.stan", package = "dgevbhm")
-    if (stan_model_path == "") {
-      stop("Stan model file not found. Ensure it is in inst/stan/ and re-install.")
-    }
-    mod <- rstan::stan_model(stan_model_path)
-
+    cat("\nLoading pre-compiled Stan model (spatial)... ")
+    mod <- stanmodels$dgev_bhm_xi_j
     cat("Complete!\n")
   }
 
@@ -110,11 +99,32 @@ dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
                          warmup = iter/2,
                          cores = cores)
 
+  # get the MCMC diagnostics
+  summ_matrix <- rstan::summary(fit)$summary
+  mcmc_diagnostics <- list(rhats = summ_matrix[, "Rhat"],
+                           ess = summ_matrix[, "n_eff"])
+
+  # extract log_lik
+  log_lik_matrix <- loo::extract_log_lik(fit,
+                                         parameter_name = "log_lik",
+                                         merge_chains = FALSE)
+
+  # compute the WAIC and LOO-IC and assign to object
+  suppressWarnings({
+    waic_object <- loo::waic(log_lik_matrix)
+    loo_object <- loo::loo(log_lik_matrix)
+    })
+
+  ic_diagnostics <- list(waic=waic_object$estimates,
+                         loo_ic=loo_object$estimates)
+
   warmup <- iter / 2
   samples_per_chain <- iter - warmup
 
   return(list(pars = rstan::extract(fit),
               data = data_list,
+              ic_diagnostics = ic_diagnostics,
+              mcmc_diagnostics = mcmc_diagnostics,
               durs = durs,
               j = length(data_list),
               d = length(durs),

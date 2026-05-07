@@ -13,18 +13,18 @@ functions {
 }
 
 data {
-  int<lower=0> J;                   // # of groups
-  int<lower=0> D;                   // # of subgroups per group (fixed)
+  int<lower=0> J;                   // # of localities
+  int<lower=0> D;                   // # of durations
   int<lower=0> N_total;             // total amount of observations
   array[D,J] int<lower=0> s;        // Subgroup size for each group (s)
   vector[N_total] y;                // Flattened observations
   vector[D] d;
-  vector[J] COV;
+  vector[J] COV;                    // Covariates for mut
 }
 
 parameters {
-  real mut_0;  // Fixed: consistent naming
-  real mut_1;  // Fixed: consistent naming
+  real mut_0;
+  real mut_1;
   vector<lower=0>[J] sigma0;
   vector<lower=-1, upper=1>[D] xi;
   vector<lower=0>[J] theta;
@@ -36,26 +36,45 @@ parameters {
 transformed parameters {
   vector[J] mut;
   for (j in 1:J) {
-    mut[j] = mut_0 + mut_1 * COV[j];  // Fixed: use mut_0 and mut_1
+    mut[j] = mut_0 + mut_1 * COV[j];
   }
 }
 
 model {
   int pos = 1;
-  
+
   mut_0 ~ normal(0, 10);
   mut_1 ~ normal(0, 5);
   sigma0 ~ gamma(beta * 10, 10);
-  xi ~ normal(delta, 0.1);
+  xi ~ normal(delta, 5);
 
   for (j in 1:J) {
     for (dd in 1:D) {
       real mu = mut[j] * sigma0[j] * pow(d[dd] + theta[j], -eta[j]);
       real sigma = sigma0[j] * pow(d[dd] + theta[j], -eta[j]);
-      
+
       for (i in 1:s[dd,j]) {
-        target += gev_lpdf(y[pos] | mu, sigma, xi[dd]);
-        pos += 1;  // Fixed: increment position correctly
+        target += gev_lpdf(y[pos + i - 1] | mu, sigma, xi[dd]);
+      }
+      pos += s[dd,j];
+    }
+  }
+}
+
+generated quantities {
+  vector[N_total] log_lik;
+
+  {
+    int pos = 1;
+    for (j in 1:J) {
+      for (dd in 1:D) {
+        real mu = mut[j] * sigma0[j] * pow(d[dd] + theta[j], -eta[j]);
+        real sigma = sigma0[j] * pow(d[dd] + theta[j], -eta[j]);
+
+        for (i in 1:s[dd,j]) {
+          log_lik[pos + i - 1] = gev_lpdf(y[pos + i - 1] | mu, sigma, xi[dd]);
+        }
+        pos += s[dd,j];
       }
     }
   }

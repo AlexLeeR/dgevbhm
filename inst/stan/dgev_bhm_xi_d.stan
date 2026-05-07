@@ -52,3 +52,22 @@ model {
     }
   }
 }
+
+generated quantities {
+  vector[N_total] log_lik;
+
+  {
+    int pos = 1;
+    for (j in 1:J) {
+      for (dd in 1:D) {
+        real mu = mut[j] * sigma0[j] * pow(d[dd] + theta[j], -eta[j]);
+        real sigma = sigma0[j] * pow(d[dd] + theta[j], -eta[j]);
+
+        for (i in 1:s[dd,j]) {
+          log_lik[pos + i - 1] = gev_lpdf(y[pos + i - 1] | mu, sigma, xi[dd]);
+        }
+        pos += s[dd,j];
+      }
+    }
+  }
+}
