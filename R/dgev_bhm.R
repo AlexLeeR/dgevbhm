@@ -115,15 +115,15 @@ dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
     loo_object <- loo::loo(log_lik_matrix)
     })
 
-  ic_diagnostics <- list(waic=waic_object$estimates,
-                         loo_ic=loo_object$estimates)
+  information_criteria <- list(waic=waic_object$estimates,
+                               loo_ic=loo_object$estimates)
 
   warmup <- iter / 2
   samples_per_chain <- iter - warmup
 
   return(list(pars = rstan::extract(fit),
               data = data_list,
-              ic_diagnostics = ic_diagnostics,
+              information_criteria = information_criteria,
               mcmc_diagnostics = mcmc_diagnostics,
               durs = durs,
               j = length(data_list),

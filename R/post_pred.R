@@ -9,6 +9,7 @@
 #' @param j Integer. Index of the station to plot.
 #'
 #' @importFrom graphics hist abline
+#' @importFrom stats median
 #' @export
 post_pred_plot <- function(fit, stat, d, j) {
 
@@ -90,6 +91,7 @@ post_pred_plot <- function(fit, stat, d, j) {
 #' @param j Integer. Index of the station.
 #'
 #' @return Numeric. The calculated PPP.
+#' @importFrom stats median
 #' @export
 post_pred_pval <- function(fit, stat, d, j) {
 
