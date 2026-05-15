@@ -116,7 +116,7 @@ dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
     })
 
   information_criteria <- list(waic=waic_object$estimates,
-                               loo_ic=loo_object$estimates)
+                               looic=loo_object$estimates)
 
   warmup <- iter / 2
   samples_per_chain <- iter - warmup
