@@ -1,5 +1,5 @@
 ---
-title: "dgevbhm_vignette"
+title: " `dgevbhm` vignette "
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{dgevbhm_vignette}
@@ -21,14 +21,84 @@ We use sub-daily precipitation records from the Global Sub-Daily Rainfall datase
 library(dgevbhm)
 ```
 
-We use the *data_read* function to read the sub-daily precipitation data directly from the directory. The user can indicate, for which durations the dGEV models will be fitted.
+The `data_read()` function reads in sub-daily precipitation data directly from a directory `dir_path` of text files.
+`missing_data` specifies the minimum of percentage of missing data per year, otherwise the year is disregarded from the data.
+`durs` are the durations of the precipitation maxima for IDF/dGEV fitting.
+`cores` allows 
 
 ```{r data_path, eval=FALSE}
-# This is the path of the data in our work PC. Please use your own!
 UK_data_full = data_read(dir_path = "../../UK/",
                          missing_data = 5,
                          durs = c(1,3,6,12,24,48),
                          cores = 4)
 ```
 
+```{r full_data_length}
+length(UK_data_full$y)
+```
+
+Out of 1903 files 47 stations were selected with requirements mentioned above.
+
+## Selecting the rain gauges
+
+`dgev_bhm()` is the central function of our package. It is able to fit the Bayesian Hierarchical dGEV models for a chosen sample of rain gauges. There, the user can choose, if the shape parameter of the dGEV is fixed over durations (resulting in the same shape parameter for all durations, $xi_d$) or fixed over space (resulting in the same shape parameter for all rain gauges, $xi_j$).
+
+```{r mean_median}
+# mean and median hourly precipitation rate (mm)
+mean(UK_data_full$amp)
+median(UK_data_full$amp)
+```
+
+Below we show an example of selecting similar stations using annual mean precipitation `amp`:
+
+```{r selection}
+med_amp <- median(UK_data_full$amp)
+# similar stations: selection of 25 stations that are closest to the median precipitation rate
+sim_stations <- which(rank(abs(UK_data_full$amp - med_amp)) <= 25)
+# plotting a histogram of the 25 precipitation rates
+hist(UK_data_full$amp[sim_stations], main = 'histogram', xlab = 'stations')
+```
+
+```{r data_names}
+names(UK_data_full) #checking header of the GSDR data
+```
+```{r latlondim}
+dim(UK_data_full$latlon) #dimension of the latlon 
+```
+
+```{r clean_data}
+# clean the data: only select the 25 rain gauges for the further example
+UK_data_full$y <- UK_data_full$y[c(sim_stations)]
+UK_data_full$amp <- UK_data_full$amp[sim_stations]
+UK_data_full$latlon <- UK_data_full$latlon[sim_stations,]
+UK_data_full$stationID <- UK_data_full$stationID[sim_stations]
+```
+
+## Fit the Bayesian hierarchical models
+
+```{r dgev_bhm_run_d, eval=FALSE}
+# Fit the dGEV-BHM with the shape parameter fixed over durations (shp_d = 'd'). We opt for 2000 iterations of the ... , where the first half is used as burn-in. 
+# We assume that 2 cores are available for computation.
+
+# WARNING: May take some time. You can also load the prepared fitted models.
+system.time({
+    fit_xi_d <- dgev_bhm(data = UK_data, chains = 2, iter = 2000,cores = 2,shp_d = 'd')
+})
+```
+
+```{r dgev_bhm_run_j, eval=FALSE}
+# Fit the dGEV-BHM with the shape parameter fixed over space (shp_d = 'j'). We opt for 2000 iterations of the MCMC, where the first half is used as burn-in. 
+# We assume that 2 cores are available for computation.
+
+# WARNING: May take some time. You can also load the prepared fitted models.
+system.time({
+    fit_xi_j <-  dgev_bhm(data = UK_data, chains = 2, iter = 2000,cores = 2,shp_d = 'j')
+})
+```
+
+```{r fit_names}
+#structure of the fitted models
+names(fit_xi_d) 
+names(fit_xi_j)
+```
 

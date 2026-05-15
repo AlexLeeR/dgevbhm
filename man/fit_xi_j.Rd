@@ -5,7 +5,7 @@
 \alias{fit_xi_j}
 \title{Result of xi_d Model Fit}
 \format{
-An object of class \code{list} of length 8.
+An object of class \code{list} of length 10.
 }
 \usage{
 fit_xi_j
