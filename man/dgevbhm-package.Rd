@@ -11,10 +11,5 @@ Bayesian Hierarchical Modeling for Duration-Dependent GEV
 \author{
 \strong{Maintainer}: Alexander Lee Rischmuller \email{alex.rischmuller@gmail.com}
 
-Authors:
-\itemize{
-  \item Alexander Lee Rischmuller \email{alex.rischmuller@gmail.com}
-}
-
 }
 \keyword{internal}

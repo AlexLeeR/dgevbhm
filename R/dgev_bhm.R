@@ -136,6 +136,7 @@ dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
                                          parameter_name = "log_lik",
                                          merge_chains = FALSE)
 
+
   # compute the WAIC and LOO-IC and assign to object
   suppressWarnings({
     waic_object <- loo::waic(log_lik_matrix)
@@ -145,10 +146,13 @@ dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
   information_criteria <- list(waic=waic_object$estimates,
                                looic=loo_object$estimates)
 
+  pars0 <- rstan::extract(fit)
+  pars <- pars0[!names(pars0) %in% c("log_lik", "lp__")]
+
   warmup <- iter / 2
   samples_per_chain <- iter - warmup
 
-  return(list(pars = rstan::extract(fit),
+  return(list(pars = pars,
               data = data_list,
               information_criteria = information_criteria,
               mcmc_diagnostics = mcmc_diagnostics,
