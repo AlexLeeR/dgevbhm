@@ -1,3 +1,13 @@
+#' Extract Parameters Helper (Internal Package Utility)
+#' @noRd
+extract_param <- function(target_vector, param_names, pattern) {
+  if (length(pattern) > 1) {
+    return(target_vector[param_names %in% pattern])
+  } else {
+    return(target_vector[grep(pattern, param_names)])
+  }
+}
+
 #' Bayesian Hierarchical Model for d-GEV
 #'
 #' Fits a Bayesian Hierarchical Model using Stan for duration-dependent
@@ -99,10 +109,27 @@ dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
                          warmup = iter/2,
                          cores = cores)
 
-  # get the MCMC diagnostics
+  # get the MCMC diagnostics cleanly using the external package helper
   summ_matrix <- rstan::summary(fit)$summary
-  mcmc_diagnostics <- list(rhats = summ_matrix[, "Rhat"],
-                           ess = summ_matrix[, "n_eff"])
+  p_names     <- rownames(summ_matrix)
+
+  ess_vector  <- summ_matrix[, "n_eff"]
+  rhat_vector <- summ_matrix[, "Rhat"]
+
+  params <- list(
+    mut    = "mut",
+    sigma0 = "sigma0",
+    xi     = "xi",
+    theta  = "theta",
+    eta    = "^eta",
+    hp     = c("alpha", "beta", "delta")
+  )
+
+  ess_list  <- lapply(params, function(p) extract_param(ess_vector, p_names, p))
+  rhat_list <- lapply(params, function(p) extract_param(rhat_vector, p_names, p))
+
+  mcmc_diagnostics <- list(rhat = rhat_list,
+                           ess = ess_list)
 
   # extract log_lik
   log_lik_matrix <- loo::extract_log_lik(fit,
@@ -113,7 +140,7 @@ dgev_bhm = function(data, chains = 4, iter = 2000, cores = 4, shp_d = NULL) {
   suppressWarnings({
     waic_object <- loo::waic(log_lik_matrix)
     loo_object <- loo::loo(log_lik_matrix)
-    })
+  })
 
   information_criteria <- list(waic=waic_object$estimates,
                                looic=loo_object$estimates)
