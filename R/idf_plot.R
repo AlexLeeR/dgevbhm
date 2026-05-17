@@ -152,7 +152,7 @@ idf_plot <- function(fit, j = NULL, rp, alpha = 0.05) {
 
       lines(durs_ip, res_list[[si]]$upper, lty = 2, col = "grey")
       lines(durs_ip, res_list[[si]]$lower, lty = 2, col = "grey")
-      legend("topright", legend = c("confidence \nintervals", "dGEV"),
+      legend("topright", legend = c("credible \nintervals", "dGEV"),
              lwd = c(1, 2), lty = c(2, 1), col = c("grey", "black"))
     } else {
       polygon(x = c(durs_ip, rev(durs_ip)),
