@@ -27,12 +27,20 @@ The `data_read()` function reads in sub-daily precipitation data directly from a
 `durs` are the durations of the precipitation maxima for IDF/dGEV fitting.
 `cores` allows the user to specify the number of CPU cores for parallel processing, significantly speeding up the data reading process.
 
-```{r data_path}
-UK_data_full <- data_read(dir_path = "../../UK/",
+To reproduce this workflow on your own machine, you will first need to obtain the raw sub-daily precipitation text files (e.g., from the Global Sub-Daily Rainfall dataset). 
+Please download the data and place the files into a local directory on your computer. 
+
+Once your directory is set up, you can read the data into R by pointing the `dir_path` argument to your chosen folder:
+
+```{r data_path, eval=FALSE}
+# Replace "/path/to/directory/" with the actual path where you saved the data
+UK_data_full <- data_read(dir_path = "/path/to/directory/",
                           missing_data = 5,
                           durs = c(1, 3, 6, 12, 24, 48),
                           cores = 4)
 ```
+
+(Note: For this vignette, the processed UK_data_full object is already bundled and loaded with the package.)
 
 ```{r full_data_length}
 length(UK_data_full$y)

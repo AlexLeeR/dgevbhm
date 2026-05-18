@@ -143,6 +143,7 @@ idf_plot <- function(fit, j = NULL, rp, alpha = 0.05) {
 
   plot(1, type = "n", xlim = idf_xlims, ylim = idf_ylims,
        main = paste0(fit$stationID[j], "\nfrequency = ", rp_paste, " years, xi shape = ", fit$shp_d),
+       xaxt = "n",
        ylab = "Intensity [mm/h]", xlab = "Duration [h]", cex.main = 0.75, log = "xy")
 
   for (si in 1:length(prob_vec)) {
@@ -160,6 +161,8 @@ idf_plot <- function(fit, j = NULL, rp, alpha = 0.05) {
               border = NA, col = adjustcolor(si_col[si], alpha.f = 0.5))
     }
   }
+
+  axis(side = 1, at = durs, labels = durs)
 
   if (length(prob_vec) > 1) {
     legend("topright", legend = paste("T =", rp, "years"),
