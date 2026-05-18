@@ -10,3 +10,5 @@ src/*.so
 inst/doc
 data/fit_xi_d.rda
 data/fit_xi_j.rda
+/doc/
+/Meta/
