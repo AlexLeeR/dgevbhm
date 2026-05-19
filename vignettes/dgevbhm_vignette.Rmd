@@ -1,9 +1,9 @@
 ---
-title: " `dgevbhm` vignette "
+title: "dgevbhm vignette"
 output: rmarkdown::html_vignette
 bibliography: references.bib
 vignette: >
-  %\VignetteIndexEntry{dgevbhm_vignette}
+  %\VignetteIndexEntry{dgevbhm vignette}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
