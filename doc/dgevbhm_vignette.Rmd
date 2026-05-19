@@ -1,0 +1,246 @@
+---
+title: "dgevbhm vignette"
+output: rmarkdown::html_vignette
+bibliography: references.bib
+vignette: >
+  %\VignetteIndexEntry{dgevbhm vignette}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+In this vignette, we present an example workflow to apply our R code for fitting the duration-dependent Generalized Extreme Value distribution (dGEV) in a Bayesian Hierarchical framework [@rischmuller2026bayesian].
+We use sub-daily precipitation records from the Global Sub-Daily Rainfall dataset [@lewis2019gsdr] over the United Kingdom.
+
+```{r setup}
+library(dgevbhm)
+```
+
+The `data_read()` function reads in sub-daily precipitation data directly from a directory `dir_path` of text files.
+`missing_data` specifies the minimum percentage of missing data per year; otherwise, the year is disregarded from the data.
+`durs` are the durations of the precipitation maxima for IDF/dGEV fitting.
+`cores` allows the user to specify the number of CPU cores for parallel processing, significantly speeding up the data reading process.
+
+To reproduce this workflow on your own machine, you will first need to obtain the raw sub-daily precipitation text files (e.g., from the Global Sub-Daily Rainfall dataset). 
+Please download the data and place the files into a local directory on your computer. 
+
+Once your directory is set up, you can read the data into R by pointing the `dir_path` argument to your chosen folder:
+
+```{r data_path, eval=FALSE}
+# Replace "/path/to/directory/" with the actual path where you saved the data
+UK_data_full <- data_read(dir_path = "/path/to/directory/",
+                          missing_data = 5,
+                          durs = c(1, 3, 6, 12, 24, 48),
+                          cores = 4)
+```
+
+(Note: For this vignette, the processed UK_data_full object is already bundled and loaded with the package.)
+
+```{r full_data_length}
+length(UK_data_full$y)
+```
+
+Out of 1903 files, 47 stations were selected based on the requirements mentioned above.
+
+## Selecting the rain gauges
+
+`dgev_bhm()` is the central function of our package.
+It is able to fit the Bayesian Hierarchical dGEV models for a chosen sample of rain gauges.
+There, the user can choose if the shape parameter of the dGEV is fixed over durations (resulting in the same shape parameter for all durations, $\xi_d$) or fixed over space (resulting in the same shape parameter for all rain gauges, $\xi_j$).
+
+```{r mean_median}
+# mean and median hourly precipitation rate (mm)
+mean(UK_data_full$amp)
+median(UK_data_full$amp)
+```
+
+Below we show an example of selecting similar stations using annual mean precipitation `amp`:
+
+```{r selection}
+med_amp <- median(UK_data_full$amp)
+# similar stations: selection of 25 stations that are closest to the median precipitation rate
+sim_stations <- which(rank(abs(UK_data_full$amp - med_amp)) <= 25)
+# plotting a histogram of the 25 precipitation rates
+hist(UK_data_full$amp[sim_stations], main = 'histogram', xlab = 'stations')
+```
+
+```{r data_names}
+names(UK_data_full) #checking header of the GSDR data
+```
+```{r latlondim}
+dim(UK_data_full$latlon) #dimension of the latlon 
+```
+
+```{r clean_data}
+# clean the data: select the 25 rain gauges and store them in a new object 
+UK_data <- list()
+UK_data$y <- UK_data_full$y[sim_stations]
+UK_data$amp <- UK_data_full$amp[sim_stations]
+UK_data$latlon <- UK_data_full$latlon[sim_stations, ]
+UK_data$stationID <- UK_data_full$stationID[sim_stations]
+# don't forget the durations!
+UK_data$durs <- c(1, 3, 6, 12, 24, 48)
+```
+
+## Fit the Bayesian hierarchical models
+
+```{r dgev_bhm_run_d}
+# Fit the dGEV-BHM with the shape parameter fixed over durations (shp_d = 'd'). We opt for 2000 iterations of the MCMC sampler, where the first half is used as burn-in. 
+# We assume that 2 cores are available for computation. 
+# As you can only use one core per chain, we use 2 chains.
+
+# WARNING: May take some time. You can also load the prepared fitted models.
+fit_xi_d <- dgev_bhm(data = UK_data, chains = 2, iter = 2000, cores = 2, shp_d = 'd')
+```
+
+```{r dgev_bhm_run_j}
+# Fit the dGEV-BHM with the shape parameter fixed over space (shp_d = 'j').
+
+# WARNING: May take some time. You can also load the prepared fitted models.
+fit_xi_j <- dgev_bhm(data = UK_data, chains = 2, iter = 2000, cores = 2, shp_d = 'j')
+```
+
+```{r fit_names}
+# structure of the fitted models
+names(fit_xi_d) 
+names(fit_xi_j)
+```
+
+There are 10 list items in the fitted model:
+
+* `pars` -- posterior parameters samples
+* `data` -- original input data
+* `information_criteria`
+  1. widely applicable information criteria
+  2. leave-one-out information criteria
+* `mcmc_diagnostics`
+  1. R-hat
+  2. Effective sample size
+* `durs` -- duration vector of the model
+* `j` -- number of localities
+* `d` -- number of durations
+* `shp_d` -- hierarchical dimension with respect to space `"j"` or durations `"d"`
+* `mcsamp` -- MCMC sample size
+* `stationID` -- vector of station IDs
+
+## Bayesian summary statistics
+
+From the fitted `dgev_bhm()` object, we can obtain MCMC convergence diagnostics.
+
+Here for the parameter $\tilde{\mu}$:
+
+```{r mcmc_diag}
+# MCMC diagnostics for mut
+fit_xi_d$mcmc_diagnostics$rhat$mut
+fit_xi_d$mcmc_diagnostics$ess$mut
+```
+The $\hat{R}$ values for $\tilde{\mu}$ are near 1.000, indicating perfect MCMC convergence and chain mixing. 
+Furthermore, the large Effective Sample Sizes (5,700–8,700) confirm an abundance of independent draws. 
+Together, these diagnostics guarantee highly stable and reliable parameter estimates for the dGEV model.
+
+### Information criteria
+
+Examine out-of-sample predictive accuracy with information criteria (IC).
+```{r ic}
+fit_xi_j$information_criteria
+fit_xi_d$information_criteria
+```
+The dGEV-BHM-$\xi_j$ is the better model, because the IC values are lower, indicating superior out-of-sample predictive accuracy.
+
+## Checking the model fits
+
+Now we will proceed with goodness-of-fit metrics.
+
+Probability-probability plots:
+```{r pp_plot_d, fig.width=7, fig.height=5, out.width="100%"}
+pp_plot(fit = fit_xi_d, j = 5)
+pp_plot(fit = fit_xi_j, j = 5)
+```
+
+Ideally, the dots should line up close to the 1:1 diagonal. 
+Furthermore, no single duration should deviate significantly, as this could indicate that the dGEV model is inappropriate for capturing duration dependence. 
+While both models yield visually similar results in the PP-plots, the information criteria previously established that dGEV-BHM-$\xi_j$ provides a better overall fit for this dataset.
+
+### Posterior predictive metrics
+
+The figures below generated by the `post_pred_plot` function are posterior predictive histograms.
+The histogram generates the theoretical statistic (e.g., quantiles, median, max, min) of the posterior parameter samples. 
+In our case, the statistics are computed using the GEV itself. We compare this with the empirical statistic from the data sample. 
+With this, we get a sense of the goodness of fit as well as the uncertainty.
+
+```{r post_pred_plot_median, fig.width=7, fig.height=8, out.width="100%"}
+par(mfrow = c(2, 1))
+post_pred_plot(fit = fit_xi_d, stat = 'median', j = 1, d = 6) # posterior predictive diagnostic plot for rain gauge #1 and duration 48h for the fit_xi_d model 
+post_pred_plot(fit = fit_xi_j, stat = 'median', j = 1, d = 6) # posterior predictive diagnostic plot for rain gauge #1 and duration 48h for the fit_xi_j model
+```
+
+```{r post_pred_plot_min, fig.width=7, fig.height=8, out.width="100%"}
+par(mfrow = c(2, 1))
+post_pred_plot(fit = fit_xi_d, stat = 'min', j = 6, d = 1) # posterior predictive diagnostic plot for rain gauge #6 and duration 1h for the fit_xi_d model 
+post_pred_plot(fit = fit_xi_j, stat = 'min', j = 6, d = 1) # posterior predictive diagnostic plot for rain gauge #6 and duration 1h for the fit_xi_j model
+```
+
+In the posterior predictive histograms, not all stations are going to fit perfectly. This is especially, and almost exclusively, true for `'min'` and `'max'` statistics. 
+This is due to the asymptotic nature of the GEV, which models the limit of block extremes (the histogram) and therefore often fails to capture a single, rare absolute record (the red line) in a finite sample.
+
+```{r post_pred_plot_max, fig.width=7, fig.height=8, out.width="100%"}
+par(mfrow = c(2, 1))
+post_pred_plot(fit = fit_xi_d, stat = 'max', j = 3, d = 1)
+post_pred_plot(fit = fit_xi_j, stat = 'max', j = 3, d = 1)
+```
+
+Instead of using a diagram, we can calculate the posterior predictive p-value using the `post_pred_pval()` function. 
+The inputs are identical to the `post_pred_plot()` function. 
+An ideal fit for the model would yield a p-value of 0.5.
+
+```{r post_pred_plot_pval, fig.width=7, fig.height=8, out.width="100%"}
+post_pred_pval(fit = fit_xi_d, stat = 'median', j = 2, d = 6)
+post_pred_pval(fit = fit_xi_j, stat = 'median', j = 2, d = 6)
+```
+
+While p-values can fluctuate across different gauge samples, the dGEV-BHM-$\xi_j$ model's median aligns with the quantitative information criteria results, demonstrating a reliable and superior fit for this specific spatial sample.
+
+## Return level plots
+
+The inputs are:
+
+* `j` - spatial locality
+* `d` - duration
+* `max_rp` - maximum plotted return period
+* `alpha` - significance level for credible intervals (default `alpha=0.05`)
+
+```{r return_level, fig.width=7, fig.height=5, out.width="100%"}
+# let's try a significance level of 0.1
+return_level_plot(fit_xi_d, j = 5, d = 1, max_rp = 100, alpha = 0.1)
+return_level_plot(fit_xi_j, j = 5, d = 1, max_rp = 100, alpha = 0.1)
+```
+
+
+## Intensity-duration-frequency curves
+
+The inputs are:
+
+* `j` - spatial locality
+* `rp` - return periods (i.e. frequency)
+* `alpha` - significance level for credible intervals (default `alpha=0.05`)
+
+Here we have a single IDF curve on the plot:
+
+```{r IDF1, fig.width=7, fig.height=5, out.width="100%"}
+idf_plot(fit = fit_xi_d,j = 5, rp = 100, alpha = 0.05)
+```
+
+Multiple IDF curves on the plot:
+
+```{r IDF3, fig.width=7, fig.height=5, out.width="100%"}
+idf_plot(fit = fit_xi_d,j = 5, rp = c(2,10,100), alpha = 0.05)
+```
+
+The IDF curves are the final result, and they can be produced for all 25 rain gauges, where the user can select return period(s) and the confidence interval. 
+@rischmuller2026bayesian have shown the added value of the dGEV Bayesian Hierarchical estimation compared to standard station-wise GEV or dGEV-MLE estimations in terms of higher accuracy and robustness.
